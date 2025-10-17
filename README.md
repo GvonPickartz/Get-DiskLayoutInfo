@@ -1,230 +1,137 @@
-# Get-DiskLayoutInfo
+﻿# Get-DiskLayoutInfo
 
-Retrieve disk and volume layout information via DiskPart — with optional CIM/WMI enrichment and CSV/JSON export.  
-✅ PowerShell 5.1+ on Windows • MIT licensed • No external dependencies.
+MUI‑neutral DiskPart.exe → PowerShell translator for disk and volume layout, with optional CIM/WMI enrichment and CSV/JSON export. Built for fast, dependable inventory and troubleshooting on Windows PowerShell 5.1.
 
-## Features
-- Parses DiskPart’s fixed-width tables (MUI/locale resilient) with a regex fallback.
-- Optional CIM/WMI identifiers (Model, Serial, Interface).
-- Optional size normalization (bytes + human-readable).
-- Optional CSV/JSON export (does not affect pipeline output).
-- Verbose tracing and progress support. No file logging.
+## Summary
+- Translates DiskPart ASCII into clean, usable PowerShell objects.
+- MUI‑neutral across locales: no reliance on English keywords.
+- Disk‑level Attributes as booleans (BootDisk, ReadOnly, etc.).
+- RAW/partition fallback when volume tables are absent.
+- Minimal deps: Windows + DiskPart + PowerShell 5.1.
+
+## Why MUI‑Neutral Matters
+- DiskPart output changes with OS language (MUI). Naive string matching breaks on non‑en‑US.
+- This tool avoids language coupling by:
+  - Using fixed‑width parsing anchored on the numeric “###” header + dashed divider.
+  - Falling back to locale‑neutral heuristics (token + number) when headers are missing.
+  - Deriving disk Attributes via OS APIs (Storage cmdlets, WMI, registry) instead of text scraping.
 
 ## Requirements
-- Windows with `diskpart.exe` available in `PATH`
-- PowerShell 5.1+ (Windows PowerShell)
+- Windows with `diskpart.exe`
+- PowerShell 5.1 (run elevated for best results)
 
-## Install / Use
-Clone, then dot-source the function, or import from your script:
-
+## Quick Start
 ```powershell
-# dot-source once per session
-. "$PSScriptRoot\src\Get-DiskLayoutInfo.ps1"
+# Run once with no prompts
+powershell -NoProfile -ExecutionPolicy Bypass -File .\Get-DiskLayoutInfo.ps1 -AddSizeFields
 
-# basic run
-Get-DiskLayoutInfo
+# Or from the current PS session
+Unblock-File .\Get-DiskLayoutInfo.ps1
+Set-ExecutionPolicy Bypass -Scope Process -Force
+./Get-DiskLayoutInfo.ps1 -AddSizeFields
+```
 
-# add CIM IDs + normalized sizes
-Get-DiskLayoutInfo -IncludeDiskIds -AddSizeFields
+Expected: summary object with `Timestamp`, `DiskCount`, and `Disks` (array). Use `-ReturnRaw` for the array directly.
 
-# export, but don’t change pipeline output
-Get-DiskLayoutInfo -AddSizeFields -ExportCsvPath .\volumes.csv -ExportJsonPath .\layout.json
+## Usage
+```powershell
+# Default summary
+./Get-DiskLayoutInfo.ps1
 
-# raw disk array (no summary wrapper)
-Get-DiskLayoutInfo -ReturnRaw | Format-Table DiskNumber, Type, Description
+# Raw disk array (no summary wrapper)
+./Get-DiskLayoutInfo.ps1 -ReturnRaw | Format-Table DiskNumber, Type, Description
 
-# hashtable view: DiskNumber -> Volumes[]
-Get-DiskLayoutInfo -ReturnAsMap
+# Map view: DiskNumber -> Volumes[]
+./Get-DiskLayoutInfo.ps1 -ReturnAsMap
 
-# filtering
-Get-DiskLayoutInfo -VolumeFilter @{ Disk = 0,1; Ltr = 'C','D'; Fs='NTFS' }
+# Export without changing pipeline output
+./Get-DiskLayoutInfo.ps1 -AddSizeFields -ExportCsvPath .\out\volumes.csv -ExportJsonPath .\out\layout.json
+```
 
-# Example usage and results:
+Admin tip: For full DiskPart details, run your session as Administrator.
 
-PS $test = .\Get-DiskLayoutInfo.ps1
-PS $test
+## Common Options
+- `-IncludeDiskIds` — Add `Model`, `PNPDeviceID`, `SerialNumber`, `InterfaceType` from CIM.
+- `-AddSizeFields` — Add `ByteSize` and `SizeHuman` to each volume.
+- `-IncludeDiskPartText` — Attach the raw DiskPart text per disk (`RawDetail`).
+- `-MaxWaitSeconds <int>` — Timeout for DiskPart calls (default 30s).
+- `-ReturnRaw` — Return only the array of disk objects.
+- `-ReturnAsMap` — Return a hashtable: DiskNumber → `Volumes[]`.
+- `-ExportCsvPath <path>` — Write a flattened volume list to CSV.
+- `-ExportJsonPath <path>` — Write the full structure to JSON.
+- `-VolumeFilter @{ Disk; Ltr; Fs; Info }` — Filter after enumeration.
 
-Timestamp            DiskCount Disks
----------            --------- -----
-10/5/2025 2:48:08 PM         3 {@{DiskNumber=0; Type=NVMe; Description=INTEL SSDPEKNU010TZ; DiskId={F20F0996-9676-4754-86E7-188FC5CEB528}; Connection=; Volumes=}, @{DiskNumber=1; Type=SATA; Description=Sam...
+## Examples
+```powershell
+# Only boot disks
+./Get-DiskLayoutInfo.ps1 -ReturnRaw | Where-Object { $_.Attributes.BootDisk } |
+  Format-Table DiskNumber, Type, Description
 
+# Find any read-only disks
+./Get-DiskLayoutInfo.ps1 -ReturnRaw | Where-Object { $_.Attributes.ReadOnly } |
+  Format-List DiskNumber, Attributes
 
-PS $test.Disks
+# Filter by drive letter or file system
+./Get-DiskLayoutInfo.ps1 -ReturnRaw -VolumeFilter @{ Ltr = 'C','D'; Fs = 'NTFS' } |
+  ForEach-Object { $dn=$_.DiskNumber; $_.Volumes | Select-Object @{N='Disk';E={$dn}},Ltr,Fs,Size }
 
+# Export CSV + JSON (and still get normal pipeline output)
+./Get-DiskLayoutInfo.ps1 -AddSizeFields -ExportCsvPath .\out\volumes.csv -ExportJsonPath .\out\layout.json
+```
 
-DiskNumber  : 0
-Type        : NVMe
-Description : INTEL SSDPEKNU010TZ
-DiskId      : {F20F0996-9676-4754-86E7-188FC5CEB528}
-Connection  : @{Path=0; Target=0; LunId=0; LocationPath=PCIROOT(0)#PCI(0301)#PCI(0000)#NVME(P00T00L00)}
-Volumes     : @{Volume=Volume 1; Ltr=D; Label=DATA; Fs=NTFS; Type=Partition; Size=953 GB; Status=Healthy; Info=; ByteSize=; SizeHuman=}
+## Output Shapes
+- Default (summary):
+  - `[pscustomobject]` with `Timestamp`, `DiskCount`, `Disks=[pscustomobject[]]`
+- `-ReturnRaw`:
+  - `[pscustomobject[]]` — one object per disk, each with `Connection`, `Attributes`, and `Volumes[]`
+- `-ReturnAsMap`:
+  - `[hashtable]` mapping `DiskNumber (string)` → `Volumes[]`
 
-DiskNumber  : 1
-Type        : SATA
-Description : Samsung SSD 850 EVO 500GB
-DiskId      : {4BE16DC4-3E72-11E8-A1F2-E03F49850ACF}
-Connection  : @{Path=0; Target=0; LunId=0; LocationPath=PCIROOT(0)#PCI(1100)#ATA(C00T00L00)}
-Volumes     : {@{Volume=Volume 2; Ltr=C; Label=; Fs=NTFS; Type=Partition; Size=464 GB; Status=Healthy; Info=Boot; ByteSize=; SizeHuman=}, @{Volume=Volume 3; Ltr=; Label=; Fs=FAT32; Type=Partition; Size=100
-              MB; Status=Healthy; Info=System; ByteSize=; SizeHuman=}, @{Volume=Volume 4; Ltr=; Label=; Fs=NTFS; Type=Partition; Size=765 MB; Status=Healthy; Info=Hidden; ByteSize=; SizeHuman=}}
+Disk object (typical):
+- `DiskNumber`, `Type`, `Description`, `DiskId`
+- `Connection` (`Path`, `Target`, `LunId`, `LocationPath`)
+- `Attributes` (booleans): `CurrentReadOnlyState`, `ReadOnly`, `BootDisk`, `PagefileDisk`, `HibernationFileDisk`, `CrashdumpDisk`, `ClusteredDisk`
+- `Volumes[]`: `Volume`, `Ltr`, `Label`, `Fs`, `Type`, `Size`, `Status`, `Info`, plus `ByteSize`/`SizeHuman` when `-AddSizeFields`
 
-DiskNumber  : 2
-Type        : USB
-Description : SAMSUNG SP2504C USB Device
-DiskId      : A915E769
-Connection  : @{Path=0; Target=0; LunId=0; LocationPath=UNAVAILABLE}
-Volumes     : {@{Volume=Volume 5; Ltr=F; Label=RECOVERY; Fs=FAT32; Type=Partition; Size=32 GB; Status=Healthy; Info=; ByteSize=; SizeHuman=}, @{Volume=Volume 6; Ltr=G; Label=BACKUP; Fs=NTFS; Type=Partition;
-              Size=200 GB; Status=Healthy; Info=; ByteSize=; SizeHuman=}}
+## How It Works
+- Exactly two DiskPart calls per run:
+  1) `list disk` to discover disk numbers
+  2) One combined script with repeated `select disk N` + `detail disk` for all disks
+- Parses fixed‑width tables using column spans (header “###” + dashed divider).
+- When headers are missing, falls back to locale‑neutral row detection (first token + number).
+- If no “Volume ###” table is present, partitions are parsed and surfaced as RAW entries (`Fs='RAW'`, `Type='Partition'`).
+- Disk Attributes are API‑derived (Get‑Disk, WMI, registry) and exposed as booleans under `Attributes`.
 
+## Performance & Limits
+- Reduced prompts and faster execution via batching.
+- Best results when run elevated (Administrator).
+- The parser expects English labels for the attribute lines; if you use a non‑English OS, open an issue with a sample of `-IncludeDiskPartText` output.
 
+## Troubleshooting
+- Execution policy: unblock or bypass
+  - `Unblock-File .\Get-DiskLayoutInfo.ps1`
+  - `Set-ExecutionPolicy Bypass -Scope Process -Force`
+- Timeout: increase `-MaxWaitSeconds` when detailing many disks.
+- Empty `Volumes`: disk is offline/RAW/has no mounted volumes; RAW partition fallback may populate entries for visibility.
+- Inspect raw text: use `-IncludeDiskPartText` and view `RawDetail`.
 
-PS $test.Disks[0].volumes
+## Versioning
+- Format: `major.daily.ddMM.YYYY`
+- Current: `1.0016.1710.2025`
 
+## License
+MIT
 
-Volume    : Volume 1
-Ltr       : D
-Label     : DATA
-Fs        : NTFS
-Type      : Partition
-Size      : 953 GB
-Status    : Healthy
-Info      :
-ByteSize  :
-SizeHuman :
+## Author
+- G.A. von Pickartz
+- Co-Author (AI): Codex CLI
 
+## Changelog
 
-
-PS $test.Disks[0].connection
-
-Path Target LunId LocationPath
----- ------ ----- ------------
-0    0      0     PCIROOT(0)#PCI(0301)#PCI(0000)#NVME(P00T00L00)
-
-
-PS $test = .\Get-DiskLayoutInfo.ps1 -IncludeDiskIds -AddSizeFields -IncludeDiskPartText
-PS $test
-
-Timestamp            DiskCount Disks
----------            --------- -----
-10/5/2025 2:49:50 PM         3 {@{DiskNumber=0; Type=NVMe; Description=INTEL SSDPEKNU010TZ; DiskId={F20F0996-9676-4754-86E7-188FC5CEB528}; Connection=; Volumes=; SerialNumber=0000_0000_0100_0000_E4D2_5CD6_...
-
-
-PS $test.Disks
-
-
-DiskNumber    : 0
-Type          : NVMe
-Description   : INTEL SSDPEKNU010TZ
-DiskId        : {F20F0996-9676-4754-86E7-188FC5CEB528}
-Connection    : @{Path=0; Target=0; LunId=0; LocationPath=PCIROOT(0)#PCI(0301)#PCI(0000)#NVME(P00T00L00)}
-Volumes       : @{Volume=Volume 1; Ltr=D; Label=DATA; Fs=NTFS; Type=Partition; Size=953 GB; Status=Healthy; Info=; ByteSize=1023275958272; SizeHuman=953.0 GB}
-SerialNumber  : 0000_0000_0100_0000_E4D2_5CD6_AB8A_5601.
-InterfaceType : SCSI
-Model         : INTEL SSDPEKNU010TZ
-PNPDeviceID   : SCSI\DISK&VEN_NVME&PROD_INTEL_SSDPEKNU01\5&4AEFD34&0&000000
-RawDetail     : {, Microsoft DiskPart version 10.0.26100.1150, , Copyright (C) Microsoft Corporation....}
-
-DiskNumber    : 1
-Type          : SATA
-Description   : Samsung SSD 850 EVO 500GB
-DiskId        : {4BE16DC4-3E72-11E8-A1F2-E03F49850ACF}
-Connection    : @{Path=0; Target=0; LunId=0; LocationPath=PCIROOT(0)#PCI(1100)#ATA(C00T00L00)}
-Volumes       : {@{Volume=Volume 2; Ltr=C; Label=; Fs=NTFS; Type=Partition; Size=464 GB; Status=Healthy; Info=Boot; ByteSize=498216206336; SizeHuman=464.0 GB}, @{Volume=Volume 3; Ltr=; Label=; Fs=FAT32;
-                Type=Partition; Size=100 MB; Status=Healthy; Info=System; ByteSize=104857600; SizeHuman=100.0 MB}, @{Volume=Volume 4; Ltr=; Label=; Fs=NTFS; Type=Partition; Size=765 MB; Status=Healthy;
-                Info=Hidden; ByteSize=802160640; SizeHuman=765.0 MB}}
-SerialNumber  : S2RBNXBH230133K
-InterfaceType : IDE
-Model         : Samsung SSD 850 EVO 500GB
-PNPDeviceID   : SCSI\DISK&VEN_SAMSUNG&PROD_SSD_850_EVO_500G\4&FD895D1&0&000000
-RawDetail     : {, Microsoft DiskPart version 10.0.26100.1150, , Copyright (C) Microsoft Corporation....}
-
-DiskNumber    : 2
-Type          : USB
-Description   : SAMSUNG SP2504C USB Device
-DiskId        : A915E769
-Connection    : @{Path=0; Target=0; LunId=0; LocationPath=UNAVAILABLE}
-Volumes       : {@{Volume=Volume 5; Ltr=F; Label=RECOVERY; Fs=FAT32; Type=Partition; Size=32 GB; Status=Healthy; Info=; ByteSize=34359738368; SizeHuman=32.0 GB}, @{Volume=Volume 6; Ltr=G; Label=BACKUP;
-                Fs=NTFS; Type=Partition; Size=200 GB; Status=Healthy; Info=; ByteSize=214748364800; SizeHuman=200.0 GB}}
-SerialNumber  : 152D203380B6
-InterfaceType : USB
-Model         : SAMSUNG SP2504C USB Device
-PNPDeviceID   : USBSTOR\DISK&VEN_SAMSUNG&PROD_SP2504C&REV_\152D203380B6&0
-RawDetail     : {, Microsoft DiskPart version 10.0.26100.1150, , Copyright (C) Microsoft Corporation....}
-
-
-
-PS $test.Disks[1].volumes
-
-
-Volume    : Volume 2
-Ltr       : C
-Label     :
-Fs        : NTFS
-Type      : Partition
-Size      : 464 GB
-Status    : Healthy
-Info      : Boot
-ByteSize  : 498216206336
-SizeHuman : 464.0 GB
-
-Volume    : Volume 3
-Ltr       :
-Label     :
-Fs        : FAT32
-Type      : Partition
-Size      : 100 MB
-Status    : Healthy
-Info      : System
-ByteSize  : 104857600
-SizeHuman : 100.0 MB
-
-Volume    : Volume 4
-Ltr       :
-Label     :
-Fs        : NTFS
-Type      : Partition
-Size      : 765 MB
-Status    : Healthy
-Info      : Hidden
-ByteSize  : 802160640
-SizeHuman : 765.0 MB
-
-
-
-PS $test.Disks[1].Connection
-
-Path Target LunId LocationPath
----- ------ ----- ------------
-0    0      0     PCIROOT(0)#PCI(1100)#ATA(C00T00L00)
-
-
-PS $test.Disks[1].RawDetail
-
-Microsoft DiskPart version 10.0.26100.1150
-
-Copyright (C) Microsoft Corporation.
-On computer: Computer1
-
-Disk 1 is now the selected disk.
-
-Samsung SSD 850 EVO 500GB
-Disk ID: {4BE16DC4-3E72-11E8-A1F2-E03F49850ACF}
-Type   : SATA
-Status : Online
-Path   : 0
-Target : 0
-LUN ID : 0
-Location Path : PCIROOT(0)#PCI(1100)#ATA(C00T00L00)
-Current Read-only State : No
-Read-only  : No
-Boot Disk  : Yes
-Pagefile Disk  : Yes
-Hibernation File Disk  : No
-Crashdump Disk  : Yes
-Clustered Disk  : No
-
-  Volume ###  Ltr  Label        Fs     Type        Size     Status     Info
-  ----------  ---  -----------  -----  ----------  -------  ---------  --------
-  Volume 2     C                NTFS   Partition    464 GB  Healthy    Boot
-  Volume 3                      FAT32  Partition    100 MB  Healthy    System
-  Volume 4                      NTFS   Partition    765 MB  Healthy    Hidden
-
+- 2025-10-17 — v1.0016.1710.2025
+  - MUI hardening: locale-neutral volume and partition detection (span header or token+number fallback).
+  - Disk attributes made language-independent (API-derived booleans via Get-Disk, WMI, registry).
+  - Batch DiskPart calls: one `list disk` + one combined `detail disk` script.
+  - RAW partition fallback when no volume table is present.
+  - README rewritten: translator focus, MUI neutrality, usage and examples.
+  - Versioning and co-author attribution added; script normalized to CRLF.
