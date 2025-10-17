@@ -117,7 +117,7 @@ Disk object (typical):
 
 ## Versioning
 - Format: `major.daily.ddMM.YYYY`
-- Current: `1.0016.1710.2025`
+ - Current: `1.0017.1710.2025`
 
 ## License
 MIT
@@ -127,6 +127,11 @@ MIT
 - Co-Author (AI): Codex CLI
 
 ## Changelog
+
+- 2025-10-17 — v1.0017.1710.2025
+  - CSV export: add Conn* fields (Path/Target/LunId/LocationPath) and DiskId/IDs (when -IncludeDiskIds).
+  - CSV export: include Attr* booleans per row.
+  - Minor README polishing for translator focus.
 
 - 2025-10-17 — v1.0016.1710.2025
   - MUI hardening: locale-neutral volume and partition detection (span header or token+number fallback).

@@ -65,7 +65,7 @@
   .NOTES
     Author          : G.A. von Pickartz
     Co-Author (AI)  : Codex CLI
-    Version         : 1.0016.1710.2025
+    Version         : 1.0017.1710.2025
     License         : MIT
     Requires        : Windows with diskpart.exe; PowerShell 5.1+
   
@@ -867,21 +867,39 @@ end {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
       }
       $flat = foreach ($d in $disks) {
+        $a = $d.PSObject.Properties['Attributes'].Value
+        $c = $d.PSObject.Properties['Connection'].Value
         foreach ($v in $d.Volumes) {
           [pscustomobject]@{
-            DiskNumber  = $d.DiskNumber
-            Type        = $d.Type
-            Description = $d.Description
-            Volume      = $v.Volume
-            Ltr         = $v.Ltr
-            Label       = $v.Label
-            Fs          = $v.Fs
-            VolType     = $v.Type
-            Size        = $v.Size
-            ByteSize    = $v.PSObject.Properties['ByteSize'].Value
-            SizeHuman   = $v.PSObject.Properties['SizeHuman'].Value
-            Status      = $v.Status
-            Info        = $v.Info
+            DiskNumber                 = $d.DiskNumber
+            Type                       = $d.Type
+            Description                = $d.Description
+            DiskId                     = $d.PSObject.Properties['DiskId'].Value
+            Volume                     = $v.Volume
+            Ltr                        = $v.Ltr
+            Label                      = $v.Label
+            Fs                         = $v.Fs
+            VolType                    = $v.Type
+            Size                       = $v.Size
+            ByteSize                   = $v.PSObject.Properties['ByteSize'].Value
+            SizeHuman                  = $v.PSObject.Properties['SizeHuman'].Value
+            Status                     = $v.Status
+            Info                       = $v.Info
+            AttrCurrentReadOnlyState   = $(if ($a) { [bool]$a.CurrentReadOnlyState } else { $null })
+            AttrReadOnly               = $(if ($a) { [bool]$a.ReadOnly } else { $null })
+            AttrBootDisk               = $(if ($a) { [bool]$a.BootDisk } else { $null })
+            AttrPagefileDisk           = $(if ($a) { [bool]$a.PagefileDisk } else { $null })
+            AttrHibernationFileDisk    = $(if ($a) { [bool]$a.HibernationFileDisk } else { $null })
+            AttrCrashdumpDisk          = $(if ($a) { [bool]$a.CrashdumpDisk } else { $null })
+            AttrClusteredDisk          = $(if ($a) { [bool]$a.ClusteredDisk } else { $null })
+            ConnPath                   = $(if ($c) { $c.Path } else { $null })
+            ConnTarget                 = $(if ($c) { $c.Target } else { $null })
+            ConnLunId                  = $(if ($c) { $c.LunId } else { $null })
+            ConnLocationPath           = $(if ($c) { $c.LocationPath } else { $null })
+            SerialNumber               = $d.PSObject.Properties['SerialNumber'].Value
+            InterfaceType              = $d.PSObject.Properties['InterfaceType'].Value
+            Model                      = $d.PSObject.Properties['Model'].Value
+            PNPDeviceID                = $d.PSObject.Properties['PNPDeviceID'].Value
           }
         }
       }
